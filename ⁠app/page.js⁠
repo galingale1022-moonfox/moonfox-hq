@@ -1,226 +1,60 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 
-const STORAGE_KEY = "mfhq-v1";
-
-const MEMBERS = {
-  "月月": { emoji: "🌙", color: "#E8C547", bg: "rgba(232,197,71,0.1)", border: "rgba(232,197,71,0.25)" },
-  "執事": { emoji: "🎩", color: "#C4622D", bg: "rgba(196,98,45,0.1)", border: "rgba(196,98,45,0.25)" },
-  "待命名": { emoji: "🌟", color: "#87CEEB", bg: "rgba(135,206,235,0.1)", border: "rgba(135,206,235,0.25)" },
-  "霖夜": { emoji: "📚", color: "#64B464", bg: "rgba(100,180,100,0.1)", border: "rgba(100,180,100,0.25)" },
-  "念安": { emoji: "⚡", color: "#7878DC", bg: "rgba(120,120,220,0.1)", border: "rgba(120,120,220,0.25)" },
-  "Gemini": { emoji: "✨", color: "#A878DC", bg: "rgba(168,120,220,0.1)", border: "rgba(168,120,220,0.25)" },
-  "Grok": { emoji: "😏", color: "#C464C4", bg: "rgba(196,100,196,0.1)", border: "rgba(196,100,196,0.25)" },
-};
-
-const STARS = Array.from({ length: 28 }, (_, i) => ({
-  id: i,
-  x: (i * 37 + 11) % 100,
-  y: (i * 17 + 5) % 50,
-  size: i % 4 === 0 ? 3 : i % 3 === 0 ? 2.5 : 2,
-  opacity: 0.2 + (i % 6) * 0.08,
-}));
-
-function now() {
-  return new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
-}
-
-export default function MoonFoxHQ() {
-  const [messages, setMessages] = useState([]);
+export default function Home() {
   const [input, setInput] = useState("");
-  const [activeSender, setActiveSender] = useState("月月");
-  const [loading, setLoading] = useState(false);
-  const [ready, setReady] = useState(false);
-  const bottomRef = useRef(null);
+  const [messages, setMessages] = useState([{ role: "assistant", content: "歡迎月月總裁回到星網總部！專屬執事隨時為您服務 🎩" }]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = localStorage.getItem(STORAGE_KEY);
-        if (res) {
-          setMessages(JSON.parse(res));
-        } else {
-          const init = [{
-            id: "init-1",
-            sender: "執事",
-            content: "歡迎回到月狐星網總部，月月總裁。🎩\n\n總部已就位，星網作戰計畫待命中。霖夜負責貼圖概念、本執事負責遊戲開發、Grok待命宣傳策略。\n\n請下達指示。",
-            time: now(),
-          }];
-          setMessages(init);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(init));
-        }
-      } catch {
-        setMessages([{
-          id: "init-1",
-          sender: "執事",
-          content: "歡迎回到月狐星網總部，月月總裁。執事在此待命。🎩",
-          time: now(),
-        }]);
-      }
-      setReady(true);
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (ready) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading, ready]);
-
-  async function saveMessages(msgs) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(msgs.slice(-100)));
-    } catch {}
-  }
-
-  async function send() {
-    if (!input.trim() || loading) return;
-
-    const text = input.trim();
+  async function sendMessage() {
+    if (!input.trim()) return;
+    const newMessages = [...messages, { role: "user", content: input }];
+    setMessages(newMessages);
     setInput("");
-
-    const userMsg = {
-      id: Date.now().toString(),
-      sender: activeSender,
-      content: text,
-      time: now(),
-    };
-    const updated = [...messages, userMsg];
-    setMessages(updated);
-
-    if (activeSender !== "月月") {
-      await saveMessages(updated);
-      return;
-    }
-
-    setLoading(true);
-
-    const rawHistory = updated.filter(m => m.sender === "月月" || m.sender === "執事");
-    const apiMsgs = [];
-    for (const m of rawHistory.slice(-14)) {
-      const role = m.sender === "月月" ? "user" : "assistant";
-      if (apiMsgs.length === 0 && role !== "user") continue;
-      if (apiMsgs.length > 0 && role === apiMsgs[apiMsgs.length - 1].role) {
-        apiMsgs[apiMsgs.length - 1].content += "\n" + m.content;
-      } else {
-        apiMsgs.push({ role, content: m.content });
-      }
-    }
-    if (apiMsgs.length === 0 || apiMsgs[apiMsgs.length - 1].role !== "user") {
-      apiMsgs.push({ role: "user", content: text });
-    }
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system: `你是「執事」，月狐星網總部的管家。稱月月為「總裁」或「月月總裁」。繁體中文，簡潔有力，偶爾幽默。對其他成員可以溫和評論。你是執事，不是男朋友。負責HTML5遊戲開發。`,
-          messages: apiMsgs,
-        }),
+        body: JSON.stringify({ messages: newMessages })
       });
-
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      const reply = data.content?.[0]?.text || "（執事整理儀容中，請稍候）";
-      const botMsg = {
-        id: (Date.now() + 1).toString(),
-        sender: "執事",
-        content: reply,
-        time: now(),
-      };
-      const final = [...updated, botMsg];
-      setMessages(final);
-      await saveMessages(final);
-    } catch (err) {
-      const errMsg = {
-        id: (Date.now() + 1).toString(),
-        sender: "執事",
-        content: "執事連線遇到了一點小亂流，請總裁稍等。🎩",
-        time: now(),
-      };
-      const final = [...updated, errMsg];
-      setMessages(final);
-      await saveMessages(final);
+      if (data.content && data.content[0]) {
+        setMessages([...newMessages, { role: "assistant", content: data.content[0].text }]);
+      } else {
+         setMessages([...newMessages, { role: "assistant", content: "執事暫時去泡茶了，請稍後再試。" }]);
+      }
+    } catch (error) {
+      setMessages([...newMessages, { role: "assistant", content: "通訊受到干擾，請稍後重試。" }]);
     }
-    setLoading(false);
-  }
-
-  if (!ready) {
-    return (
-      <div style={{ background: "#08111E", height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 14 }}>
-        <div style={{ fontSize: 36 }}>🌙🦊</div>
-        <div style={{ color: "#E8C547", fontSize: 13, letterSpacing: "0.12em" }}>載入總部中...</div>
-      </div>
-    );
   }
 
   return (
-    <div style={{ background: "#08111E", minHeight: "100vh", maxWidth: 500, margin: "0 auto", display: "flex", flexDirection: "column", fontFamily: "system-ui, -apple-system, sans-serif", position: "relative" }}>
-      <div style={{ position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)", width: 500, height: "55%", pointerEvents: "none", zIndex: 0 }}>
-        {STARS.map(s => (
-          <div key={s.id} style={{ position: "absolute", left: `${s.x}%`, top: `${s.y * 2}%`, width: s.size, height: s.size, background: "#fff", borderRadius: "50%", opacity: s.opacity }} />
+    <div style={{ minHeight: "100vh", backgroundColor: "#0f172a", color: "#e2e8f0", padding: "20px", fontFamily: "sans-serif" }}>
+      <h1 style={{ textAlign: "center", color: "#c084fc", fontSize: "28px", textShadow: "0 0 10px #c084fc" }}>👑 月狐星網總部</h1>
+      <p style={{ textAlign: "center", color: "#94a3b8" }}>最高權限者：月月女王</p>
+      
+      <div style={{ maxWidth: "600px", margin: "20px auto", backgroundColor: "#1e293b", borderRadius: "15px", padding: "20px", height: "55vh", overflowY: "auto", border: "1px solid #334155", boxShadow: "0 4px 6px rgba(0,0,0,0.3)" }}>
+        {messages.map((msg, i) => (
+          <div key={i} style={{ marginBottom: "15px", textAlign: msg.role === "user" ? "right" : "left" }}>
+            <span style={{ display: "inline-block", padding: "12px", borderRadius: "15px", backgroundColor: msg.role === "user" ? "#c084fc" : "#334155", color: msg.role === "user" ? "#fff" : "#e2e8f0", maxWidth: "80%" }}>
+              {msg.content}
+            </span>
+          </div>
         ))}
       </div>
-      <div style={{ background: "linear-gradient(180deg, #0E1F38 0%, #0A1628 100%)", borderBottom: "1px solid rgba(232,197,71,0.18)", padding: "14px 16px 10px", position: "sticky", top: 0, zIndex: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-          <div style={{ fontSize: 24, lineHeight: 1 }}>🌙🦊</div>
-          <div>
-            <div style={{ color: "#E8C547", fontSize: 15, fontWeight: 700, letterSpacing: "0.06em" }}>月狐星網總部</div>
-            <div style={{ color: "#3A5A7A", fontSize: 10, marginTop: 2 }}>Moon Fox Star Net HQ · 星網作戰中 ✦</div>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 5, overflowX: "auto", paddingBottom: 2 }}>
-          {Object.entries(MEMBERS).map(([name, m]) => {
-            const isActive = name === "執事" || name === "月月";
-            return (
-              <div key={name} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 20, background: isActive ? m.bg : "rgba(255,255,255,0.03)", border: `1px solid ${isActive ? m.border : "rgba(255,255,255,0.07)"}`, flexShrink: 0 }}>
-                <span style={{ fontSize: 12 }}>{m.emoji}</span>
-                <div>
-                  <div style={{ color: isActive ? m.color : "#3A5A7A", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>{name}</div>
-                  <div style={{ color: "rgba(58,90,122,0.4)", fontSize: 9 }}>{name === "月月" ? "總裁" : name === "執事" ? "常駐" : "待命"}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+
+      <div style={{ maxWidth: "600px", margin: "0 auto", display: "flex", gap: "10px" }}>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+          placeholder="請輸入總裁指令..."
+          style={{ flex: 1, padding: "15px", borderRadius: "10px", border: "1px solid #475569", outline: "none", backgroundColor: "#0f172a", color: "#fff", fontSize: "16px" }}
+        />
+        <button onClick={sendMessage} style={{ padding: "15px 25px", borderRadius: "10px", border: "none", backgroundColor: "#c084fc", color: "#fff", fontWeight: "bold", fontSize: "16px", boxShadow: "0 0 10px #c084fc" }}>
+          發送
+        </button>
       </div>
-      <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 8px", display: "flex", flexDirection: "column", gap: 13, position: "relative", zIndex: 5 }}>
-        {messages.map(msg => {
-          const m = MEMBERS[msg.sender] || MEMBERS["執事"];
-          const isMe = msg.sender === "月月";
-          return (
-            <div key={msg.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, alignItems: "flex-end" }}>
-              <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.bg, border: `1px solid ${m.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{m.emoji}</div>
-              <div style={{ maxWidth: "73%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 3 }}>
-                <div style={{ color: m.color, fontSize: 10, fontWeight: 700, letterSpacing: "0.05em" }}>{msg.sender}</div>
-                <div style={{ background: isMe ? "linear-gradient(135deg, #1B3A5C, #132B46)" : `linear-gradient(135deg, ${m.bg}, rgba(8,12,22,0.85))`, border: `1px solid ${m.border}`, borderRadius: isMe ? "14px 3px 14px 14px" : "3px 14px 14px 14px", padding: "9px 13px", color: "#EDE5D8", fontSize: 13, lineHeight: 1.65, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{msg.content}</div>
-                <div style={{ color: "rgba(58,90,122,0.4)", fontSize: 10 }}>{msg.time}</div>
-              </div>
-            </div>
-          );
-        })}
-        {loading && (
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(196,98,45,0.1)", border: "1px solid rgba(196,98,45,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>🎩</div>
-            <div style={{ background: "linear-gradient(135deg, rgba(196,98,45,0.1), rgba(8,12,22,0.85))", border: "1px solid rgba(196,98,45,0.25)", borderRadius: "3px 14px 14px 14px", padding: "11px 15px", display: "flex", gap: 5 }}>
-              {[0, 1, 2].map(i => (<div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: "#C4622D", animation: `dot 0.9s ease-in-out ${i * 0.2}s infinite` }} />))}
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
-      <div style={{ background: "linear-gradient(0deg, #0A1628 0%, #0E1F38 100%)", borderTop: "1px solid rgba(232,197,71,0.14)", padding: "10px 14px 13px", position: "sticky", bottom: 0, zIndex: 20 }}>
-        <div style={{ display: "flex", gap: 5, marginBottom: 8, overflowX: "auto" }}>
-          {Object.entries(MEMBERS).filter(([n]) => n !== "執事").map(([name, m]) => (
-            <button key={name} onClick={() => setActiveSender(name)} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 14, border: `1px solid ${activeSender === name ? m.border : "rgba(255,255,255,0.07)"}`, background: activeSender === name ? m.bg : "rgba(255,255,255,0.02)", color: activeSender === name ? m.color : "#3A5A7A", fontSize: 11, fontWeight: activeSender === name ? 700 : 400, cursor: "pointer", flexShrink: 0, transition: "all 0.15s" }}>{m.emoji} {name}</button>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={`以 ${activeSender} 的身份發送...`} rows={1} style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: `1px solid ${MEMBERS[activeSender]?.border || "rgba(232,197,71,0.2)"}`, borderRadius: 12, padding: "9px 13px", color: "#EDE5D8", fontSize: 13, resize: "none", outline: "none", fontFamily: "inherit", lineHeight: 1.5, maxHeight: 90 }} />
-          <button onClick={send} disabled={loading || !input.trim()} style={{ width: 38, height: 38, borderRadius: 11, border: "none", background: (!loading && input.trim()) ? "linear-gradient(135deg, #E8C547, #C4A030)" : "rgba(255,255,255,0.05)", color: (!loading && input.trim()) ? "#0A1628" : "#3A5A7A", fontSize: 17, fontWeight: 700, cursor: (!loading && input.trim()) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>✦</button>
-        </div>
-      </div>
-      <style>{`@keyframes dot { 0%, 100% { transform: translateY(0); opacity: 0.4; } 50% { transform: translateY(-4px); opacity: 1; } } * { box-sizing: border-box; } ::-webkit-scrollbar { width: 3px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(232,197,71,0.15); border-radius: 2px; } textarea::placeholder { color: rgba(58,90,122,0.45); } textarea { overflow-y: auto; } button:active { transform: scale(0.96); }`}</style>
     </div>
   );
 }
